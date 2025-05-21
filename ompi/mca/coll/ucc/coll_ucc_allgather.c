@@ -15,15 +15,20 @@ static inline ucc_status_t mca_coll_ucc_allgather_init(const void *sbuf, size_t 
                                                        ucc_coll_req_h *req,
                                                        mca_coll_ucc_req_t *coll_req)
 {
-    ucc_datatype_t         ucc_sdt, ucc_rdt;
+    ucc_datatype_t ucc_sdt = UCC_DT_INT8, ucc_rdt = UCC_DT_INT8;
+    bool is_inplace = (MPI_IN_PLACE == sbuf);
     int comm_size = ompi_comm_size(ucc_module->comm);
 
-    if (!ompi_datatype_is_contiguous_memory_layout(sdtype, scount) ||
+    if (!(is_inplace || ompi_datatype_is_contiguous_memory_layout(sdtype, scount)) ||
         !ompi_datatype_is_contiguous_memory_layout(rdtype, rcount * comm_size)) {
         goto fallback;
     }
-    ucc_sdt = ompi_dtype_to_ucc_dtype(sdtype);
+
     ucc_rdt = ompi_dtype_to_ucc_dtype(rdtype);
+    if (!is_inplace) {
+        ucc_sdt = ompi_dtype_to_ucc_dtype(sdtype);
+    }
+
     if (COLL_UCC_DT_UNSUPPORTED == ucc_sdt ||
         COLL_UCC_DT_UNSUPPORTED == ucc_rdt) {
         UCC_VERBOSE(5, "ompi_datatype is not supported: dtype = %s",
@@ -50,7 +55,7 @@ static inline ucc_status_t mca_coll_ucc_allgather_init(const void *sbuf, size_t 
         }
     };
 
-    if (MPI_IN_PLACE == sbuf) {
+    if (is_inplace) {
         coll.mask  = UCC_COLL_ARGS_FIELD_FLAGS;
         coll.flags = UCC_COLL_ARGS_FLAG_IN_PLACE;
     }
@@ -77,8 +82,9 @@ int mca_coll_ucc_allgather(const void *sbuf, int scount, struct ompi_datatype_t 
     return OMPI_SUCCESS;
 fallback:
     UCC_VERBOSE(3, "running fallback allgather");
-    return ucc_module->previous_allgather(sbuf, scount, sdtype, rbuf, rcount, rdtype,
-                                          comm, ucc_module->previous_allgather_module);
+
+    return mca_coll_ucc_call_previous(allgather, ucc_module,
+        sbuf, scount, sdtype, rbuf, rcount, rdtype, comm);
 }
 
 int mca_coll_ucc_iallgather(const void *sbuf, int scount, struct ompi_datatype_t *sdtype,
@@ -104,6 +110,7 @@ fallback:
     if (coll_req) {
         mca_coll_ucc_req_free((ompi_request_t **)&coll_req);
     }
-    return ucc_module->previous_iallgather(sbuf, scount, sdtype, rbuf, rcount, rdtype,
-                                           comm, request, ucc_module->previous_iallgather_module);
+
+    return mca_coll_ucc_call_previous(iallgather, ucc_module,
+        sbuf, scount, sdtype, rbuf, rcount, rdtype, comm, request);
 }
